@@ -48,6 +48,10 @@ export class AuthService {
     return this.buildAuthResponse(safeUser);
   }
 
+  async getMe(userId: number): Promise<CreatedUserResponseDto> {
+    return this.usersService.findPublicUser(userId);
+  }
+
   private buildAuthResponse(user: CreatedUserResponseDto): AuthResponseDto {
     const payload: JwtPayload = { sub: user.id, email: user.email };
     return {
