@@ -25,4 +25,19 @@ const router = createRouter({
   ],
 })
 
+router.beforeEach((to) => {
+  const accessToken = localStorage.getItem('accessToken')
+  const isAuthenticated = Boolean(accessToken)
+
+  if (to.meta.requiresAuth && !isAuthenticated) {
+    return { path: '/' }
+  }
+
+  if (isAuthenticated && (to.path === '/' || to.path === '/register')) {
+    return { path: '/kanbam' }
+  }
+
+  return true
+})
+
 export default router
