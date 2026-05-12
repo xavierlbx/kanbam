@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 
 import AuthLayout from '@/components/AuthLayout.vue'
 import AuthHeader from '@/components/AuthHeader.vue'
@@ -17,9 +18,41 @@ const router = useRouter()
 const email = ref('')
 const password = ref('')
 const loading = ref(false)
+const errorMessage = ref('')
+
+type LoginResponse = {
+  accessToken: string
+  user: {
+    id: string
+    name: string
+    email: string
+  }
+}
 
 const handleLogin = async () => {
+  errorMessage.value = ''
   loading.value = true
+
+  try {
+    const { data } = await axios.post<LoginResponse>(
+      `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/api/auth/login`,
+      {
+        email: email.value,
+        password: password.value,
+      },
+    )
+
+    localStorage.setItem('accessToken', data.accessToken)
+    localStorage.setItem('user', JSON.stringify(data.user))
+
+    const postLoginPath = import.meta.env.VITE_POST_LOGIN_PATH ?? '/kanbam'
+    await router.push(postLoginPath)
+  } catch (error) {
+    errorMessage.value = 'E-mail ou senha invalidos.'
+    console.error('Login error:', error)
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -58,6 +91,8 @@ const handleLogin = async () => {
         :loading="loading"
         fluid
       />
+
+      <small v-if="errorMessage" class="error-message">{{ errorMessage }}</small>
     </form>
 
     <div class="divider"><span>ou</span></div>
@@ -133,6 +168,12 @@ const handleLogin = async () => {
 
 .switch-link:hover {
   text-decoration: underline;
+}
+
+.error-message {
+  color: #dc2626;
+  font-size: 0.8125rem;
+  text-align: center;
 }
 
 /* ── Responsive ── */
