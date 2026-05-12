@@ -2,15 +2,35 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import axios, { AxiosError } from 'axios'
+
 import AuthLayout from '@/components/AuthLayout.vue'
 import AuthHeader from '@/components/AuthHeader.vue'
 
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 
 import InputGroup from 'primevue/inputgroup'
 import InputGroupAddon from 'primevue/inputgroupaddon'
+
+type RegisterResponse = {
+  accessToken: string
+  user: {
+    id: number
+    name: string
+    email: string
+    createdAt: string
+    updatedAt: string
+  }
+}
+
+type RegisterPayload = {
+  name: string
+  email: string
+  password: string
+}
 
 const router = useRouter()
 
@@ -19,12 +39,58 @@ const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const loading = ref(false)
+const errorMessage = ref('')
+const successModalVisible = ref(false)
+const createdUserName = ref('')
 
-async function handleRegister() {
+const handleRegister = async () => {
+  errorMessage.value = ''
+
+  if (!name.value || !email.value || !password.value || !confirmPassword.value) {
+    errorMessage.value = 'Por favor, preencha todos os campos.'
+    return
+  }
+
+  if (password.value !== confirmPassword.value) {
+    errorMessage.value = 'As senhas nao coincidem.'
+    return
+  }
+
   loading.value = true
-  setTimeout(() => {
+
+  try {
+    const payload: RegisterPayload = {
+      name: name.value,
+      email: email.value,
+      password: password.value,
+    }
+
+    const { data } = await axios.post<RegisterResponse>(
+      `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/api/auth/register`,
+      payload,
+    )
+
+    createdUserName.value = data.user.name
+    successModalVisible.value = true
+
+    name.value = ''
+    email.value = ''
+    password.value = ''
+    confirmPassword.value = ''
+  } catch (error) {
+    const message =
+      (error as AxiosError<{ message: string[] }>).response?.data?.message[0] ||
+      'Ocorreu um erro ao criar a conta. Tente novamente.'
+
+    errorMessage.value = message
+  } finally {
     loading.value = false
-  }, 1000)
+  }
+}
+
+const goToLogin = async () => {
+  successModalVisible.value = false
+  await router.push('/')
 }
 </script>
 
@@ -83,6 +149,8 @@ async function handleRegister() {
         :loading="loading"
         fluid
       />
+
+      <small v-if="errorMessage" class="error-message">{{ errorMessage }}</small>
     </form>
 
     <div class="divider"><span>ou</span></div>
@@ -91,6 +159,21 @@ async function handleRegister() {
       Já possui uma conta?
       <a class="switch-link" @click="router.push('/')">Entre aqui</a>
     </p>
+
+    <Dialog
+      v-model:visible="successModalVisible"
+      modal
+      :closable="false"
+      :draggable="false"
+      header="Cadastro concluido"
+      class="success-dialog"
+    >
+      <p class="success-message">Usuario {{ createdUserName }} criado com sucesso.</p>
+
+      <template #footer>
+        <Button label="Ir para login" icon="pi pi-sign-in" @click="goToLogin" autofocus />
+      </template>
+    </Dialog>
   </AuthLayout>
 </template>
 
@@ -158,6 +241,18 @@ async function handleRegister() {
 
 .switch-link:hover {
   text-decoration: underline;
+}
+
+.error-message {
+  color: #dc2626;
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.success-message {
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+  color: #374151;
 }
 
 /* ── Responsive ── */
