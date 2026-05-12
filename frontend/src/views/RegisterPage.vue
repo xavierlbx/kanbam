@@ -14,22 +14,34 @@ import InputGroupAddon from 'primevue/inputgroupaddon'
 
 const router = useRouter()
 
+const name = ref('')
 const email = ref('')
 const password = ref('')
+const confirmPassword = ref('')
 const loading = ref(false)
 
-const handleLogin = async () => {
+async function handleRegister() {
   loading.value = true
+  setTimeout(() => {
+    loading.value = false
+  }, 1000)
 }
 </script>
 
 <template>
   <AuthLayout>
-    <AuthHeader headerText="Login" />
+    <AuthHeader headerText="Cadastrar" />
 
-    <p class="auth-form-preText">Entre com suas credenciais para continuar</p>
+    <p class="auth-form-preText">Crie sua conta para continuar</p>
 
-    <form class="auth-form" @submit.prevent="handleLogin">
+    <form class="auth-form" @submit.prevent="handleRegister">
+      <InputGroup>
+        <InputGroupAddon>
+          <i class="pi pi-user"></i>
+        </InputGroupAddon>
+        <InputText class="input-form" v-model="name" placeholder="Nome completo" />
+      </InputGroup>
+
       <InputGroup>
         <InputGroupAddon>
           <i class="pi pi-envelope"></i>
@@ -50,9 +62,22 @@ const handleLogin = async () => {
         />
       </InputGroup>
 
+      <InputGroup>
+        <InputGroupAddon>
+          <i class="pi pi-lock"></i>
+        </InputGroupAddon>
+        <Password
+          class="input-form"
+          v-model="confirmPassword"
+          placeholder="Confirmar Senha"
+          :feedback="false"
+          toggle-mask
+        />
+      </InputGroup>
+
       <Button
         type="submit"
-        label="Entrar"
+        label="Criar"
         icon="pi pi-arrow-right"
         icon-pos="right"
         :loading="loading"
@@ -63,8 +88,8 @@ const handleLogin = async () => {
     <div class="divider"><span>ou</span></div>
 
     <p class="switch-text">
-      Não possui uma conta?
-      <a class="switch-link" @click="router.push('/register')">Crie uma</a>
+      Já possui uma conta?
+      <a class="switch-link" @click="router.push('/')">Entre aqui</a>
     </p>
   </AuthLayout>
 </template>
