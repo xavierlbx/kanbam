@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { KanbamService } from '../kanbam/kanbam.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user-dto';
 
@@ -15,7 +16,10 @@ interface CreatedUser {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly kanbamService: KanbamService,
+  ) {}
 
   async findByEmail(email: string): Promise<{ id: number } | null> {
     return this.prisma.user.findUnique({
@@ -61,19 +65,25 @@ export class UsersService {
 
     const hashedPassword = await bcrypt.hash(dto.password, SALT_ROUNDS);
 
-    return this.prisma.user.create({
-      data: {
-        name: dto.name,
-        email: dto.email,
-        passwordHash: hashedPassword,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    return this.prisma.$transaction(async (prisma) => {
+      const user = await prisma.user.create({
+        data: {
+          name: dto.name,
+          email: dto.email,
+          passwordHash: hashedPassword,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      await this.kanbamService.createBoardAndColumnsDefault(user.id, prisma);
+
+      return user;
     });
   }
 }
