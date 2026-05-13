@@ -6,11 +6,7 @@ import { UsersService } from '../users/users.service';
 import type { AuthResponseDto } from './dto/auth-response.dto';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
-
-interface JwtPayload {
-  sub: number;
-  email: string;
-}
+import type { JwtPayload } from './strategies/jwt.strategy';
 
 @Injectable()
 export class AuthService {
@@ -37,13 +33,7 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais invalidas.');
     }
 
-    const safeUser: CreatedUserResponseDto = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
+    const safeUser = await this.usersService.findPublicUser(user.id);
 
     return this.buildAuthResponse(safeUser);
   }
