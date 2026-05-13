@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AuthPage from '../views/AuthPage.vue'
 import RegisterPage from '../views/RegisterPage.vue'
 import KanbamPage from '@/views/KanbamPage.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -25,16 +26,22 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
-  const accessToken = localStorage.getItem('accessToken')
-  const isAuthenticated = Boolean(accessToken)
+let sessionHydrated = false
 
-  if (to.meta.requiresAuth && !isAuthenticated) {
-    return { path: '/' }
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore()
+
+  if (!sessionHydrated) {
+    await authStore.hydrateSession()
+    sessionHydrated = true
   }
 
-  if (isAuthenticated && (to.path === '/' || to.path === '/register')) {
-    return { path: '/kanbam' }
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return { name: 'login' }
+  }
+
+  if (authStore.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
+    return { name: 'kanbam' }
   }
 
   return true

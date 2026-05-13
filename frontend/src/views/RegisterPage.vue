@@ -2,8 +2,6 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import axios, { AxiosError } from 'axios'
-
 import AuthLayout from '@/components/AuthLayout.vue'
 import AuthHeader from '@/components/AuthHeader.vue'
 
@@ -15,24 +13,11 @@ import Password from 'primevue/password'
 import InputGroup from 'primevue/inputgroup'
 import InputGroupAddon from 'primevue/inputgroupaddon'
 
-type RegisterResponse = {
-  accessToken: string
-  user: {
-    id: number
-    name: string
-    email: string
-    createdAt: string
-    updatedAt: string
-  }
-}
-
-type RegisterPayload = {
-  name: string
-  email: string
-  password: string
-}
+import { useAuthStore } from '@/stores/auth'
+import { extractApiErrorMessage } from '@/types/auth'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const name = ref('')
 const email = ref('')
@@ -59,18 +44,7 @@ const handleRegister = async () => {
   loading.value = true
 
   try {
-    const payload: RegisterPayload = {
-      name: name.value,
-      email: email.value,
-      password: password.value,
-    }
-
-    const { data } = await axios.post<RegisterResponse>(
-      `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000'}/api/auth/register`,
-      payload,
-    )
-
-    createdUserName.value = data.user.name
+    createdUserName.value = await authStore.register(name.value, email.value, password.value)
     successModalVisible.value = true
 
     name.value = ''
@@ -78,11 +52,10 @@ const handleRegister = async () => {
     password.value = ''
     confirmPassword.value = ''
   } catch (error) {
-    const message =
-      (error as AxiosError<{ message: string[] }>).response?.data?.message[0] ||
-      'Ocorreu um erro ao criar a conta. Tente novamente.'
-
-    errorMessage.value = message
+    errorMessage.value = extractApiErrorMessage(
+      error,
+      'Nao foi possivel criar sua conta. Verifique os dados.',
+    )
   } finally {
     loading.value = false
   }
