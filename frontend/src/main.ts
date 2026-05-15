@@ -6,6 +6,8 @@ import router from './router'
 
 import PrimeVue from 'primevue/config'
 import Lara from '@primeuix/themes/lara'
+import ToastService from 'primevue/toastservice'
+import Tooltip from 'primevue/tooltip'
 
 import 'primeicons/primeicons.css'
 
@@ -21,5 +23,7 @@ app.use(PrimeVue, {
     },
   },
 })
+app.use(ToastService)
+app.directive('tooltip', Tooltip)
 
 app.mount('#app')

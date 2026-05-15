@@ -1,51 +1,616 @@
 <script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { kanbamApi } from '@/modules/kanbam/service/kanbamApi'
+import type { Column, Task, CreateTaskPayload } from '@/types/kanbam'
+
+import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
+import Textarea from 'primevue/textarea'
+import Toast from 'primevue/toast'
+import ProgressSpinner from 'primevue/progressspinner'
+import { useToast } from 'primevue/usetoast'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const toast = useToast()
 
-const handleLogout = () => {
+const columns = ref<Column[]>([])
+const tasks = ref<Task[]>([])
+const loading = ref(true)
+
+const showAddTaskDialog = ref(false)
+const selectedColumnId = ref<number | null>(null)
+const newTaskTitle = ref('')
+const newTaskDescription = ref('')
+const addingTask = ref(false)
+
+const tasksByColumn = computed(() => {
+  const map = new Map<number, Task[]>()
+  columns.value.forEach((col) => map.set(col.id, []))
+  tasks.value.forEach((task) => {
+    const list = map.get(task.columnId)
+    if (list) list.push(task)
+  })
+  return map
+})
+
+const COLUMN_ACCENTS: Record<number, string> = {
+  0: 'backlog',
+  1: 'todo',
+  2: 'doing',
+  3: 'done',
+}
+
+function getColumnAccent(order: number) {
+  return COLUMN_ACCENTS[order] ?? 'backlog'
+}
+
+async function fetchData() {
+  if (!authStore.accessToken) return
+  loading.value = true
+  try {
+    const [colRes, taskRes] = await Promise.all([
+      kanbamApi.findAllColumns(authStore.accessToken),
+      kanbamApi.findAllTasks(authStore.accessToken),
+    ])
+    columns.value = colRes.data
+    tasks.value = taskRes.data
+  } catch {
+    toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao carregar o quadro.', life: 3000 })
+  } finally {
+    loading.value = false
+  }
+}
+
+function openAddTask(columnId: number) {
+  selectedColumnId.value = columnId
+  newTaskTitle.value = ''
+  newTaskDescription.value = ''
+  showAddTaskDialog.value = true
+}
+
+async function handleAddTask() {
+  if (!authStore.accessToken || !selectedColumnId.value || !newTaskTitle.value.trim()) return
+  addingTask.value = true
+  try {
+    const payload: CreateTaskPayload = {
+      title: newTaskTitle.value.trim(),
+      description: newTaskDescription.value.trim() || undefined,
+      columnId: selectedColumnId.value,
+    }
+    const { data } = await kanbamApi.createTask(authStore.accessToken, payload)
+    tasks.value.push(data)
+    showAddTaskDialog.value = false
+    toast.add({ severity: 'success', summary: 'Criado', detail: 'Tarefa criada com sucesso!', life: 2000 })
+  } catch {
+    toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao criar a tarefa.', life: 3000 })
+  } finally {
+    addingTask.value = false
+  }
+}
+
+async function handleDeleteTask(taskId: number) {
+  if (!authStore.accessToken) return
+  try {
+    await kanbamApi.removeTask(authStore.accessToken, taskId)
+    tasks.value = tasks.value.filter((t) => t.id !== taskId)
+    toast.add({ severity: 'success', summary: 'Removido', detail: 'Tarefa removida.', life: 2000 })
+  } catch {
+    toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao remover a tarefa.', life: 3000 })
+  }
+}
+
+function handleLogout() {
   authStore.logout()
   router.push('/')
 }
+
+onMounted(fetchData)
 </script>
 
 <template>
-  <section class="kanbam-page">
-    <header class="kanbam-header">
-      <h1>Kanbam Page</h1>
-      <button type="button" class="logout-button" @click="handleLogout">Logout</button>
+  <Toast />
+
+  <div class="kanban-app">
+    <!-- Header -->
+    <header class="kanban-header">
+      <div class="kanban-header-left">
+        <span class="kanban-header-logo">
+          <i class="pi pi-th-large" />
+        </span>
+        <h1 class="kanban-header-title">Kanbam</h1>
+      </div>
+      <div class="kanban-header-right">
+        <span v-if="authStore.user" class="kanban-header-user">
+          <i class="pi pi-user" />
+          {{ authStore.user.name }}
+        </span>
+        <Button
+          label="Logout"
+          icon="pi pi-sign-out"
+          outlined
+          size="small"
+          severity="secondary"
+          @click="handleLogout"
+        />
+      </div>
     </header>
 
-    <p>Welcome to the Kanbam page!</p>
-  </section>
+    <!-- Board area -->
+    <main class="kanban-board-wrapper">
+      <!-- Loading state -->
+      <div v-if="loading" class="kanban-loading">
+        <ProgressSpinner strokeWidth="4" />
+        <p>Carregando quadro...</p>
+      </div>
+
+      <!-- Board -->
+      <div v-else class="kanban-board">
+        <div
+          v-for="col in columns"
+          :key="col.id"
+          class="kanban-column"
+          :class="`kanban-column--${getColumnAccent(col.order)}`"
+        >
+          <!-- Column header -->
+          <div class="kanban-column-header">
+            <div class="kanban-column-header-left">
+              <span class="kanban-column-dot" />
+              <h2 class="kanban-column-title">{{ col.title }}</h2>
+              <span class="kanban-column-count">
+                {{ tasksByColumn.get(col.id)?.length ?? 0 }}
+              </span>
+            </div>
+            <Button
+              icon="pi pi-plus"
+              text
+              rounded
+              size="small"
+              class="kanban-column-add-btn"
+              v-tooltip.top="'Adicionar tarefa'"
+              @click="openAddTask(col.id)"
+            />
+          </div>
+
+          <!-- Tasks list -->
+          <div class="kanban-column-tasks">
+            <!-- Empty state -->
+            <div v-if="!tasksByColumn.get(col.id)?.length" class="kanban-column-empty">
+              <i class="pi pi-inbox" />
+              <p>Sem tarefas</p>
+            </div>
+
+            <!-- Task cards -->
+            <div v-for="task in tasksByColumn.get(col.id)" :key="task.id" class="kanban-task">
+              <div class="kanban-task-body">
+                <p class="kanban-task-title">{{ task.title }}</p>
+                <p v-if="task.description" class="kanban-task-description">{{ task.description }}</p>
+              </div>
+              <div class=".kanban-task-footer">
+                <span class="kanban-task-id">#{{ task.id }}</span>
+                <Button
+                  icon="pi pi-trash"
+                  text
+                  rounded
+                  size="small"
+                  severity="danger"
+                  class="kanban-task-delete"
+                  @click="handleDeleteTask(task.id)"
+                />
+              </div>
+            </div>
+
+            <!-- Add task inline -->
+            <button class="kanban-column-add-inline" type="button" @click="openAddTask(col.id)">
+              <i class="pi pi-plus" />
+              Adicionar tarefa
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Task Dialog -->
+  <Dialog
+    v-model:visible="showAddTaskDialog"
+    modal
+    header="Nova Tarefa"
+    :style="{ width: '90vw', maxWidth: '480px' }"
+    :draggable="false"
+  >
+    <form class="task-form" @submit.prevent="handleAddTask">
+      <div class="task-form-field">
+        <label class="task-form-label" for="task-title">Título *</label>
+        <InputText
+          id="task-title"
+          v-model="newTaskTitle"
+          placeholder="Nome da tarefa"
+          class="w-full"
+          autofocus
+        />
+      </div>
+
+      <div class="task-form-field">
+        <label class="task-form-label" for="task-desc">Descrição</label>
+        <Textarea
+          id="task-desc"
+          v-model="newTaskDescription"
+          placeholder="Descreva a tarefa (opcional)"
+          class="w-full"
+          rows="3"
+          :autoResize="true"
+        />
+      </div>
+
+      <div class="task-form-actions">
+        <Button
+          label="Cancelar"
+          outlined
+          severity="secondary"
+          type="button"
+          @click="showAddTaskDialog = false"
+        />
+        <Button
+          label="Criar tarefa"
+          icon="pi pi-check"
+          type="submit"
+          :loading="addingTask"
+          :disabled="!newTaskTitle.trim()"
+        />
+      </div>
+    </form>
+  </Dialog>
 </template>
 
 <style scoped>
-.kanbam-page {
-  padding: 1.5rem;
+/* ── App shell ──────────────────────────────────────────────── */
+.kanban-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f5f5f9;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
-.kanbam-header {
+/* ── Header ─────────────────────────────────────────────────── */
+.kanban-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  height: 60px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.kanban-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.kanban-header-logo {
+  display: flex;
+  align-items: center;
+  font-size: 1.25rem;
+}
+
+.kanban-header-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.kanban-header-right {
+  display: flex;
   align-items: center;
   gap: 1rem;
 }
 
-.logout-button {
-  border: 1px solid #d1d5db;
-  background-color: #ffffff;
-  color: #111827;
-  padding: 0.5rem 0.9rem;
-  border-radius: 0.5rem;
-  cursor: pointer;
+.kanban-header-user {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+/* Override PrimeVue outlined button colours inside the header */
+.kanban-header :deep(.p-button-outlined) {
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
+}
+.kanban-header :deep(.p-button-outlined:hover) {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: #ffffff !important;
+}
+
+/* ── Board wrapper ──────────────────────────────────────────── */
+.kanban-board-wrapper {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-x: auto;
+}
+
+/* ── Loading ────────────────────────────────────────────────── */
+.kanban-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  height: 60vh;
+  color: #6366f1;
+  font-size: 0.9rem;
+}
+
+/* ── Board ──────────────────────────────────────────────────── */
+.kanban-board {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  min-height: calc(100vh - 140px);
+}
+
+/* ── Column ─────────────────────────────────────────────────── */
+.kanban-column {
+  flex: 1;
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.07);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 4px solid transparent;
+}
+
+.kanban-column--backlog { border-top-color: #94a3b8; }
+.kanban-column--todo    { border-top-color: #6366f1; }
+.kanban-column--doing   { border-top-color: #f59e0b; }
+.kanban-column--done    { border-top-color: #22c55e; }
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1rem 0.7rem;
+}
+
+.kanban-column-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.kanban-column-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.kanban-column--backlog .kanban-column-dot { background: #94a3b8; }
+.kanban-column--todo    .kanban-column-dot { background: #6366f1; }
+.kanban-column--doing   .kanban-column-dot { background: #f59e0b; }
+.kanban-column--done    .kanban-column-dot { background: #22c55e; }
+
+.kanban-column-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  margin-bottom: 1px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kanban-column-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 0.72rem;
   font-weight: 600;
+  margin-bottom: 1px;
 }
 
-.logout-button:hover {
-  background-color: #f3f4f6;
+.kanban-column-add-btn {
+  color: #94a3b8 !important;
+  transition: color 0.15s, background 0.15s;
+}
+.kanban-column-add-btn:hover {
+  color: #6366f1 !important;
+  background: #eef2ff !important;
 }
 
+/* ── Tasks list ─────────────────────────────────────────────── */
+.kanban-column-tasks {
+  flex: 1;
+  padding: 0 0.9rem 0.75rem;
+  padding-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 210px);
+}
+
+.kanban-column-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 2rem 1rem;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+}
+
+.kanban-column-empty .pi {
+  font-size: 1.4rem;
+}
+
+/* ── Task card ──────────────────────────────────────────────── */
+.kanban-task {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 0.65rem;
+  padding: 0.75rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.kanban-column--backlog .kanban-task { background: #faf9f9; }
+.kanban-column--todo    .kanban-task { background: #eff0ff; }
+.kanban-column--doing   .kanban-task { background: #fef3e0; }
+.kanban-column--done    .kanban-task { background: #dcfce7; }
+
+.kanban-task:hover {
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  transform: translateY(-1px);
+  border-color: #c7d2fe;
+}
+
+.kanban-task-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.4;
+}
+
+.kanban-task-description {
+  margin: 0;
+  font-size: 0.775rem;
+  color: #64748b;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kanban-task-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kanban-task-id {
+  font-size: 0.7rem;
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.kanban-task-delete {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.kanban-task:hover .kanban-task-delete {
+  opacity: 1;
+}
+
+/* ── Add inline ─────────────────────────────────────────────── */
+.kanban-column-add-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  margin-top: 0.15rem;
+  background: transparent;
+  border: 1.5px dashed #e2e8f0;
+  border-radius: 0.5rem;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+
+.kanban-column-add-inline:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #eef2ff;
+}
+
+/* ── Dialog form ────────────────────────────────────────────── */
+.task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.25rem;
+}
+
+.task-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.task-form-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.task-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .kanban-board-wrapper {
+    padding: 1rem 0.75rem;
+  }
+
+  .kanban-board {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kanban-column {
+    flex: none;
+    width: 100%;
+  }
+
+  .kanban-column-tasks {
+    max-height: none;
+  }
+
+  .kanban-header-user {
+    display: none;
+  }
+
+  .kanban-task-delete {
+    opacity: 1;
+  }
+}
 </style>
+
