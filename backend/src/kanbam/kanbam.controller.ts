@@ -11,6 +11,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -27,6 +28,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { JwtPayload } from '../auth/strategies/jwt.strategy';
 import { CreateTaskDto } from './dto/create-task.dto';
+import { ReorderTasksDto } from './dto/reorder-tasks.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskResponseDto } from './dto/task-response.dto';
 import { KanbamService } from './kanbam.service';
@@ -55,6 +57,18 @@ export class KanbamController {
   @ApiUnauthorizedResponse({ description: 'Token inválido ou expirado.' })
   async findAllColumns(@CurrentUser() user: JwtPayload): Promise<ColumnResponseDto[]> {
     return this.kanbamService.findAllColumns(user.sub);
+  }
+
+  @SkipThrottle()
+  @Patch('tasks/reorder')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Reordenar tasks e mover entre colunas' })
+  @ApiNoContentResponse({ description: 'Tasks reordenadas com sucesso.' })
+  @ApiUnauthorizedResponse({ description: 'Token inválido ou expirado.' })
+  @ApiForbiddenResponse({ description: 'Task ou coluna sem permissão de acesso.' })
+  @ApiNotFoundResponse({ description: 'Task ou coluna não encontrada.' })
+  async reorderTasks(@CurrentUser() user: JwtPayload, @Body() dto: ReorderTasksDto): Promise<void> {
+    return this.kanbamService.reorderTasks(user.sub, dto);
   }
 
   @Get('tasks/:id')

@@ -1,8 +1,14 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UserRegisteredEvent } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
+import type { ReorderTasksDto } from './dto/reorder-tasks.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { TaskResponseDto } from './dto/task-response.dto';
 import { ColumnResponseDto } from './dto/column-response.dto';
@@ -143,6 +149,92 @@ export class KanbamService {
   async removeTask(userId: number, taskId: number): Promise<void> {
     await this.verifyTaskOwnership(taskId, userId);
     await this.prisma.task.delete({ where: { id: taskId } });
+  }
+
+  async reorderTasks(userId: number, dto: ReorderTasksDto): Promise<void> {
+    const taskIds = dto.tasks.map((item) => item.id);
+    const uniqueTaskIds = new Set(taskIds);
+
+    if (uniqueTaskIds.size !== taskIds.length) {
+      throw new BadRequestException('A lista possui tasks duplicadas.');
+    }
+
+    const targetColumnIds = [...new Set(dto.tasks.map((item) => item.columnId))];
+
+    const [ownedTasks, ownedColumns] = await Promise.all([
+      this.prisma.task.findMany({
+        where: {
+          id: { in: [...uniqueTaskIds] },
+          column: { board: { userId } },
+        },
+        select: { id: true },
+      }),
+      this.prisma.column.findMany({
+        where: {
+          id: { in: targetColumnIds },
+          board: { userId },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    if (ownedTasks.length !== uniqueTaskIds.size) {
+      throw new ForbiddenException('Uma ou mais tasks não pertencem ao usuário autenticado.');
+    }
+
+    if (ownedColumns.length !== targetColumnIds.length) {
+      throw new ForbiddenException('Uma ou mais colunas não pertencem ao usuário autenticado.');
+    }
+
+    const groupedByColumn = new Map<number, { id: number; columnId: number; order: number }[]>();
+
+    for (const item of dto.tasks) {
+      const current = groupedByColumn.get(item.columnId);
+      if (current) {
+        // ]
+        current.push(item);
+      } else {
+        groupedByColumn.set(item.columnId, [item]);
+      }
+    }
+
+    const normalizedItems: { id: number; columnId: number; order: number }[] = [];
+
+    for (const [columnId, items] of groupedByColumn.entries()) {
+      items
+        .slice()
+        .sort((a, b) => (a.order === b.order ? a.id - b.id : a.order - b.order))
+        .forEach((item, index) => {
+          normalizedItems.push({
+            id: item.id,
+            columnId,
+            order: index,
+          });
+        });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (let index = 0; index < normalizedItems.length; index += 1) {
+        const item = normalizedItems[index];
+        await tx.task.update({
+          where: { id: item.id },
+          data: {
+            columnId: item.columnId,
+            order: -(index + 1),
+          },
+        });
+      }
+
+      for (const item of normalizedItems) {
+        await tx.task.update({
+          where: { id: item.id },
+          data: {
+            columnId: item.columnId,
+            order: item.order,
+          },
+        });
+      }
+    });
   }
 
   @OnEvent('user.registered')
