@@ -2,7 +2,13 @@ import axios from 'axios'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
-import type { Column, CreateTaskPayload, Task, UpdateTaskPayload } from '@/types/kanbam'
+import type {
+  Column,
+  CreateTaskPayload,
+  ReorderTasksPayload,
+  Task,
+  UpdateTaskPayload,
+} from '@/types/kanbam'
 
 function authHeaders(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } }
@@ -31,6 +37,10 @@ export const kanbamApi = {
 
   updateTask(token: string, id: number, payload: UpdateTaskPayload) {
     return axios.patch<Task>(`${BASE_URL}/api/kanbam/tasks/${id}`, payload, authHeaders(token))
+  },
+
+  reorderTasks(token: string, payload: ReorderTasksPayload) {
+    return axios.patch<void>(`${BASE_URL}/api/kanbam/tasks/reorder`, payload, authHeaders(token))
   },
 
   removeTask(token: string, id: number) {

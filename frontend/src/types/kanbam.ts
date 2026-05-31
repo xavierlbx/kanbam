@@ -10,6 +10,16 @@ export interface UpdateTaskPayload {
   columnId?: number
 }
 
+export interface ReorderTaskItemPayload {
+  id: number
+  columnId: number
+  order: number
+}
+
+export interface ReorderTasksPayload {
+  tasks: ReorderTaskItemPayload[]
+}
+
 export interface Task {
   id: number
   title: string

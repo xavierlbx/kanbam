@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { kanbamApi } from '@/modules/kanbam/service/kanbamApi'
-import type { Column, Task, CreateTaskPayload } from '@/types/kanbam'
+import type { Column, CreateTaskPayload, ReorderTasksPayload, Task } from '@/types/kanbam'
+import draggable from 'vuedraggable'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
@@ -18,24 +19,20 @@ const authStore = useAuthStore()
 const toast = useToast()
 
 const columns = ref<Column[]>([])
-const tasks = ref<Task[]>([])
+const tasksByColumn = ref<Record<number, Task[]>>({})
 const loading = ref(true)
+const savingOrder = ref(false)
 
 const showAddTaskDialog = ref(false)
 const selectedColumnId = ref<number | null>(null)
 const newTaskTitle = ref('')
 const newTaskDescription = ref('')
 const addingTask = ref(false)
+let dragSnapshot: Record<number, Task[]> | null = null
 
-const tasksByColumn = computed(() => {
-  const map = new Map<number, Task[]>()
-  columns.value.forEach((col) => map.set(col.id, []))
-  tasks.value.forEach((task) => {
-    const list = map.get(task.columnId)
-    if (list) list.push(task)
-  })
-  return map
-})
+const hasTasks = computed(() =>
+  columns.value.some((column) => (tasksByColumn.value[column.id]?.length ?? 0) > 0),
+)
 
 const COLUMN_ACCENTS: Record<number, string> = {
   0: 'backlog',
@@ -48,16 +45,134 @@ function getColumnAccent(order: number) {
   return COLUMN_ACCENTS[order] ?? 'backlog'
 }
 
+function cloneTaskMap(source: Record<number, Task[]>): Record<number, Task[]> {
+  const clone: Record<number, Task[]> = {}
+  for (const [columnId, list] of Object.entries(source)) {
+    clone[Number(columnId)] = list.map((task) => ({ ...task }))
+  }
+  return clone
+}
+
+function haveTaskPositionsChanged(
+  previous: Record<number, Task[]>,
+  current: Record<number, Task[]>,
+): boolean {
+  const columnIds = new Set([
+    ...Object.keys(previous).map(Number),
+    ...Object.keys(current).map(Number),
+  ])
+
+  for (const columnId of columnIds) {
+    const previousList = previous[columnId] ?? []
+    const currentList = current[columnId] ?? []
+
+    if (previousList.length !== currentList.length) {
+      return true
+    }
+
+    for (let index = 0; index < previousList.length; index += 1) {
+      if (previousList[index]?.id !== currentList[index]?.id) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+function getColumnTasks(columnId: number): Task[] {
+  if (!tasksByColumn.value[columnId]) {
+    tasksByColumn.value[columnId] = []
+  }
+  return tasksByColumn.value[columnId]
+}
+
+function normalizeLocalTaskOrder() {
+  columns.value.forEach((column) => {
+    const list = getColumnTasks(column.id)
+    list.forEach((task, index) => {
+      task.columnId = column.id
+      task.order = index
+    })
+  })
+}
+
+function buildReorderPayload(): ReorderTasksPayload {
+  const tasks = columns.value.flatMap((column) =>
+    getColumnTasks(column.id).map((task, index) => ({
+      id: task.id,
+      columnId: column.id,
+      order: index,
+    })),
+  )
+
+  return { tasks }
+}
+
+async function persistTaskOrder(snapshot: Record<number, Task[]>) {
+  if (!authStore.accessToken || !hasTasks.value) return
+
+  savingOrder.value = true
+  try {
+    normalizeLocalTaskOrder()
+    await kanbamApi.reorderTasks(authStore.accessToken, buildReorderPayload())
+  } catch {
+    tasksByColumn.value = snapshot
+    toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao reordenar as tarefas.', life: 3000 })
+    await fetchData()
+  } finally {
+    savingOrder.value = false
+  }
+}
+
+function handleDragStart() {
+  dragSnapshot = cloneTaskMap(tasksByColumn.value)
+}
+
+async function handleDragEnd() {
+  if (!dragSnapshot) return
+  const snapshot = dragSnapshot
+  dragSnapshot = null
+
+  if (!haveTaskPositionsChanged(snapshot, tasksByColumn.value)) {
+    return
+  }
+
+  await persistTaskOrder(snapshot)
+}
+
 async function fetchData() {
-  if (!authStore.accessToken) return
+  if (!authStore.accessToken) {
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const [colRes, taskRes] = await Promise.all([
       kanbamApi.findAllColumns(authStore.accessToken),
       kanbamApi.findAllTasks(authStore.accessToken),
     ])
-    columns.value = colRes.data
-    tasks.value = taskRes.data
+    columns.value = colRes.data.sort((a, b) => a.order - b.order)
+
+    const nextMap: Record<number, Task[]> = {}
+    columns.value.forEach((column) => {
+      nextMap[column.id] = []
+    })
+
+    taskRes.data
+      .slice()
+      .sort((a, b) => (a.columnId === b.columnId ? a.order - b.order : a.columnId - b.columnId))
+      .forEach((task) => {
+        if (!nextMap[task.columnId]) {
+          nextMap[task.columnId] = []
+        }
+        const list = nextMap[task.columnId]
+        if (list) {
+          list.push(task)
+        }
+      })
+
+    tasksByColumn.value = nextMap
   } catch {
     toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao carregar o quadro.', life: 3000 })
   } finally {
@@ -73,7 +188,7 @@ function openAddTask(columnId: number) {
 }
 
 async function handleAddTask() {
-  if (!authStore.accessToken || !selectedColumnId.value || !newTaskTitle.value.trim()) return
+  if (!authStore.accessToken || selectedColumnId.value === null || !newTaskTitle.value.trim()) return
   addingTask.value = true
   try {
     const payload: CreateTaskPayload = {
@@ -82,7 +197,9 @@ async function handleAddTask() {
       columnId: selectedColumnId.value,
     }
     const { data } = await kanbamApi.createTask(authStore.accessToken, payload)
-    tasks.value.push(data)
+    getColumnTasks(data.columnId).push(data)
+    normalizeLocalTaskOrder()
+    selectedColumnId.value = null
     showAddTaskDialog.value = false
     toast.add({ severity: 'success', summary: 'Criado', detail: 'Tarefa criada com sucesso!', life: 2000 })
   } catch {
@@ -96,7 +213,11 @@ async function handleDeleteTask(taskId: number) {
   if (!authStore.accessToken) return
   try {
     await kanbamApi.removeTask(authStore.accessToken, taskId)
-    tasks.value = tasks.value.filter((t) => t.id !== taskId)
+    columns.value.forEach((column) => {
+      const list = getColumnTasks(column.id)
+      tasksByColumn.value[column.id] = list.filter((task) => task.id !== taskId)
+    })
+    normalizeLocalTaskOrder()
     toast.add({ severity: 'success', summary: 'Removido', detail: 'Tarefa removida.', life: 2000 })
   } catch {
     toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao remover a tarefa.', life: 3000 })
@@ -161,7 +282,7 @@ onMounted(fetchData)
               <span class="kanban-column-dot" />
               <h2 class="kanban-column-title">{{ col.title }}</h2>
               <span class="kanban-column-count">
-                {{ tasksByColumn.get(col.id)?.length ?? 0 }}
+                  {{ getColumnTasks(col.id).length }}
               </span>
             </div>
             <Button
@@ -177,30 +298,47 @@ onMounted(fetchData)
 
           <!-- Tasks list -->
           <div class="kanban-column-tasks">
+            <draggable
+              :list="getColumnTasks(col.id)"
+              item-key="id"
+              group="kanban-tasks"
+              :animation="180"
+              :delay="140"
+              :delay-on-touch-only="true"
+              :fallback-tolerance="8"
+              ghost-class="kanban-task-ghost"
+              chosen-class="kanban-task-chosen"
+              drag-class="kanban-task-drag"
+              :disabled="savingOrder"
+              @start="handleDragStart"
+              @end="handleDragEnd"
+            >
+              <template #item="{ element: task }">
+                <div class="kanban-task">
+                  <div class="kanban-task-body">
+                    <p class="kanban-task-title">{{ task.title }}</p>
+                    <p v-if="task.description" class="kanban-task-description">{{ task.description }}</p>
+                  </div>
+                  <div class="kanban-task-footer">
+                    <span class="kanban-task-id">#{{ task.id }}</span>
+                    <Button
+                      icon="pi pi-trash"
+                      text
+                      rounded
+                      size="small"
+                      severity="danger"
+                      class="kanban-task-delete"
+                      @click.stop="handleDeleteTask(task.id)"
+                    />
+                  </div>
+                </div>
+              </template>
+            </draggable>
+
             <!-- Empty state -->
-            <div v-if="!tasksByColumn.get(col.id)?.length" class="kanban-column-empty">
+            <div v-if="!getColumnTasks(col.id).length" class="kanban-column-empty">
               <i class="pi pi-inbox" />
               <p>Sem tarefas</p>
-            </div>
-
-            <!-- Task cards -->
-            <div v-for="task in tasksByColumn.get(col.id)" :key="task.id" class="kanban-task">
-              <div class="kanban-task-body">
-                <p class="kanban-task-title">{{ task.title }}</p>
-                <p v-if="task.description" class="kanban-task-description">{{ task.description }}</p>
-              </div>
-              <div class=".kanban-task-footer">
-                <span class="kanban-task-id">#{{ task.id }}</span>
-                <Button
-                  icon="pi pi-trash"
-                  text
-                  rounded
-                  size="small"
-                  severity="danger"
-                  class="kanban-task-delete"
-                  @click="handleDeleteTask(task.id)"
-                />
-              </div>
             </div>
 
             <!-- Add task inline -->
@@ -476,8 +614,12 @@ onMounted(fetchData)
   flex-direction: column;
   gap: 0.45rem;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
-  cursor: pointer;
+  cursor: grab;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.kanban-task:active {
+  cursor: grabbing;
 }
 
 .kanban-column--backlog .kanban-task { background: #faf9f9; }
@@ -515,6 +657,20 @@ onMounted(fetchData)
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+
+.kanban-task-ghost {
+  opacity: 0.35;
+}
+
+.kanban-task-chosen {
+  border-color: #a5b4fc;
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.22);
+}
+
+.kanban-task-drag {
+  transform: rotate(1deg);
 }
 
 .kanban-task-id {
