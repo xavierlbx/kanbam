@@ -3,7 +3,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { kanbamApi } from '@/modules/kanbam/service/kanbamApi'
-import type { Column, CreateTaskPayload, ReorderTasksPayload, Task } from '@/types/kanbam'
+import type {
+  Column,
+  CreateTaskPayload,
+  ReorderTasksPayload,
+  Task,
+  UpdateTaskPayload,
+} from '@/types/kanbam'
 import draggable from 'vuedraggable'
 
 import Button from 'primevue/button'
@@ -23,16 +29,25 @@ const tasksByColumn = ref<Record<number, Task[]>>({})
 const loading = ref(true)
 const savingOrder = ref(false)
 
-const showAddTaskDialog = ref(false)
+const showTaskDialog = ref(false)
+const taskDialogMode = ref<'create' | 'edit'>('create')
+const editingTaskId = ref<number | null>(null)
 const selectedColumnId = ref<number | null>(null)
-const newTaskTitle = ref('')
-const newTaskDescription = ref('')
-const addingTask = ref(false)
+const taskTitle = ref('')
+const taskDescription = ref('')
+const submittingTask = ref(false)
 let dragSnapshot: Record<number, Task[]> | null = null
+
+const isEditingTask = computed(() => taskDialogMode.value === 'edit')
 
 const hasTasks = computed(() =>
   columns.value.some((column) => (tasksByColumn.value[column.id]?.length ?? 0) > 0),
 )
+
+const selectedColumnTitle = computed(() => {
+  if (selectedColumnId.value === null) return ''
+  return columns.value.find((column) => column.id === selectedColumnId.value)?.title ?? ''
+})
 
 const COLUMN_ACCENTS: Record<number, string> = {
   0: 'backlog',
@@ -181,31 +196,97 @@ async function fetchData() {
 }
 
 function openAddTask(columnId: number) {
+  taskDialogMode.value = 'create'
+  editingTaskId.value = null
   selectedColumnId.value = columnId
-  newTaskTitle.value = ''
-  newTaskDescription.value = ''
-  showAddTaskDialog.value = true
+  taskTitle.value = ''
+  taskDescription.value = ''
+  showTaskDialog.value = true
+}
+
+function openEditTask(task: Task) {
+  taskDialogMode.value = 'edit'
+  editingTaskId.value = task.id
+  selectedColumnId.value = task.columnId
+  taskTitle.value = task.title
+  taskDescription.value = task.description ?? ''
+  showTaskDialog.value = true
+}
+
+function closeTaskDialog() {
+  showTaskDialog.value = false
+  taskDialogMode.value = 'create'
+  editingTaskId.value = null
+  selectedColumnId.value = null
+  taskTitle.value = ''
+  taskDescription.value = ''
+}
+
+function replaceTaskInBoard(updatedTask: Task) {
+  for (const column of columns.value) {
+    const list = getColumnTasks(column.id)
+    const index = list.findIndex((task) => task.id === updatedTask.id)
+    if (index !== -1) {
+      list.splice(index, 1)
+      break
+    }
+  }
+
+  const targetList = getColumnTasks(updatedTask.columnId)
+  targetList.push(updatedTask)
+  targetList.sort((a, b) => a.order - b.order)
+  normalizeLocalTaskOrder()
+}
+
+async function handleSubmitTask() {
+  if (isEditingTask.value) {
+    await handleEditTask()
+    return
+  }
+
+  await handleAddTask()
 }
 
 async function handleAddTask() {
-  if (!authStore.accessToken || selectedColumnId.value === null || !newTaskTitle.value.trim()) return
-  addingTask.value = true
+  if (!authStore.accessToken || selectedColumnId.value === null || !taskTitle.value.trim()) return
+  submittingTask.value = true
   try {
     const payload: CreateTaskPayload = {
-      title: newTaskTitle.value.trim(),
-      description: newTaskDescription.value.trim() || undefined,
+      title: taskTitle.value.trim(),
+      description: taskDescription.value.trim() || undefined,
       columnId: selectedColumnId.value,
     }
     const { data } = await kanbamApi.createTask(authStore.accessToken, payload)
     getColumnTasks(data.columnId).push(data)
     normalizeLocalTaskOrder()
-    selectedColumnId.value = null
-    showAddTaskDialog.value = false
+    showTaskDialog.value = false
     toast.add({ severity: 'success', summary: 'Criado', detail: 'Tarefa criada com sucesso!', life: 2000 })
   } catch {
     toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao criar a tarefa.', life: 3000 })
   } finally {
-    addingTask.value = false
+    submittingTask.value = false
+  }
+}
+
+async function handleEditTask() {
+  if (!authStore.accessToken || editingTaskId.value === null || !taskTitle.value.trim()) return
+
+  submittingTask.value = true
+  try {
+    const trimmedDescription = taskDescription.value.trim()
+    const payload: UpdateTaskPayload = {
+      title: taskTitle.value.trim(),
+      description: trimmedDescription ? trimmedDescription : null,
+    }
+
+    const { data } = await kanbamApi.updateTask(authStore.accessToken, editingTaskId.value, payload)
+    replaceTaskInBoard(data)
+    showTaskDialog.value = false
+    toast.add({ severity: 'success', summary: 'Atualizado', detail: 'Tarefa atualizada com sucesso!', life: 2000 })
+  } catch {
+    toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao atualizar a tarefa.', life: 3000 })
+  } finally {
+    submittingTask.value = false
   }
 }
 
@@ -321,15 +402,26 @@ onMounted(fetchData)
                   </div>
                   <div class="kanban-task-footer">
                     <span class="kanban-task-id">#{{ task.id }}</span>
-                    <Button
-                      icon="pi pi-trash"
-                      text
-                      rounded
-                      size="small"
-                      severity="danger"
-                      class="kanban-task-delete"
-                      @click.stop="handleDeleteTask(task.id)"
-                    />
+                    <div class="kanban-task-actions">
+                      <Button
+                        icon="pi pi-pencil"
+                        text
+                        rounded
+                        size="small"
+                        severity="secondary"
+                        class="kanban-task-edit"
+                        @click.stop="openEditTask(task)"
+                      />
+                      <Button
+                        icon="pi pi-trash"
+                        text
+                        rounded
+                        size="small"
+                        severity="danger"
+                        class="kanban-task-delete"
+                        @click.stop="handleDeleteTask(task.id)"
+                      />
+                    </div>
                   </div>
                 </div>
               </template>
@@ -354,29 +446,53 @@ onMounted(fetchData)
 
   <!-- Add Task Dialog -->
   <Dialog
-    v-model:visible="showAddTaskDialog"
+    v-model:visible="showTaskDialog"
     modal
-    header="Nova Tarefa"
+    class="task-dialog"
     :style="{ width: '90vw', maxWidth: '480px' }"
     :draggable="false"
+    :dismissableMask="!submittingTask"
+    :closable="!submittingTask"
+    @hide="closeTaskDialog"
   >
-    <form class="task-form" @submit.prevent="handleAddTask">
+    <template #header>
+      <div class="task-dialog-header">
+        <span class="task-dialog-header-icon">
+          <i :class="isEditingTask ? 'pi pi-pencil' : 'pi pi-plus-circle'" />
+        </span>
+        <div class="task-dialog-header-copy">
+          <h3>{{ isEditingTask ? 'Editar tarefa' : 'Nova tarefa' }}</h3>
+          <p>
+            {{
+              isEditingTask
+                ? `Atualizar em ${selectedColumnTitle || 'quadro'}`
+                : selectedColumnTitle
+                  ? `Adicionar em ${selectedColumnTitle}`
+                  : 'Adicionar ao quadro'
+            }}
+          </p>
+        </div>
+      </div>
+    </template>
+
+    <form class="task-form" @submit.prevent="handleSubmitTask">
       <div class="task-form-field">
         <label class="task-form-label" for="task-title">Título *</label>
         <InputText
           id="task-title"
-          v-model="newTaskTitle"
+          v-model="taskTitle"
           placeholder="Nome da tarefa"
           class="w-full"
           autofocus
         />
+        <small class="task-form-help">Use um nome curto e objetivo para a tarefa.</small>
       </div>
 
       <div class="task-form-field">
         <label class="task-form-label" for="task-desc">Descrição</label>
         <Textarea
           id="task-desc"
-          v-model="newTaskDescription"
+          v-model="taskDescription"
           placeholder="Descreva a tarefa (opcional)"
           class="w-full"
           rows="3"
@@ -390,14 +506,15 @@ onMounted(fetchData)
           outlined
           severity="secondary"
           type="button"
-          @click="showAddTaskDialog = false"
+          :disabled="submittingTask"
+          @click="showTaskDialog = false"
         />
         <Button
-          label="Criar tarefa"
-          icon="pi pi-check"
+          :label="isEditingTask ? 'Salvar alterações' : 'Criar tarefa'"
+          :icon="isEditingTask ? 'pi pi-save' : 'pi pi-check'"
           type="submit"
-          :loading="addingTask"
-          :disabled="!newTaskTitle.trim()"
+          :loading="submittingTask"
+          :disabled="!taskTitle.trim()"
         />
       </div>
     </form>
@@ -659,6 +776,12 @@ onMounted(fetchData)
   justify-content: space-between;
 }
 
+.kanban-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
 
 .kanban-task-ghost {
   opacity: 0.35;
@@ -684,7 +807,13 @@ onMounted(fetchData)
   transition: opacity 0.15s;
 }
 
-.kanban-task:hover .kanban-task-delete {
+.kanban-task-edit {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.kanban-task:hover .kanban-task-delete,
+.kanban-task:hover .kanban-task-edit {
   opacity: 1;
 }
 
@@ -717,27 +846,126 @@ onMounted(fetchData)
 .task-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding-top: 0.25rem;
+  gap: 1.15rem;
+  padding-top: 0.15rem;
 }
 
 .task-form-field {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
 .task-form-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #374151;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.task-form-help {
+  margin-top: -0.15rem;
+  color: #64748b;
+  font-size: 0.74rem;
 }
 
 .task-form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-  padding-top: 0.25rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.task-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.task-dialog-header-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+  flex-shrink: 0;
+}
+
+.task-dialog-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.task-dialog-header-copy h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.task-dialog-header-copy p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.task-dialog :deep(.p-dialog) {
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+}
+
+.task-dialog :deep(.p-dialog-header) {
+  padding: 0.95rem 1.1rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  background:
+    radial-gradient(circle at 100% 0, rgba(99, 102, 241, 0.08), transparent 46%),
+    radial-gradient(circle at 0 100%, rgba(139, 92, 246, 0.09), transparent 42%),
+    #f8fafc;
+}
+
+.task-dialog :deep(.p-dialog-content) {
+  padding: 1rem 1.1rem 1.1rem;
+  background: #ffffff;
+}
+
+.task-dialog :deep(.p-dialog-header-icon) {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.6rem;
+  color: #475569;
+}
+
+.task-dialog :deep(.p-dialog-header-icon:hover) {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.task-dialog :deep(.p-inputtext),
+.task-dialog :deep(.p-textarea) {
+  border-radius: 0.65rem;
+  border-width: 1.5px;
+  border-color: #cbd5e1;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.task-dialog :deep(.p-inputtext:enabled:hover),
+.task-dialog :deep(.p-textarea:enabled:hover) {
+  border-color: #a5b4fc;
+}
+
+.task-dialog :deep(.p-inputtext:enabled:focus),
+.task-dialog :deep(.p-textarea:enabled:focus) {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */
@@ -765,6 +993,10 @@ onMounted(fetchData)
   }
 
   .kanban-task-delete {
+    opacity: 1;
+  }
+
+  .kanban-task-edit {
     opacity: 1;
   }
 }
