@@ -14,7 +14,7 @@ import InputGroup from 'primevue/inputgroup'
 import InputGroupAddon from 'primevue/inputgroupaddon'
 
 import { useAuthStore } from '@/stores/auth'
-import { extractApiErrorMessage } from '@/types/auth'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 const router = useRouter()
 const authStore = useAuthStore()
