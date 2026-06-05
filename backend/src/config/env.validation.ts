@@ -9,6 +9,10 @@ class EnvironmentVariables {
 
   @IsString()
   @IsNotEmpty()
+  CORS_ORIGINS!: string;
+
+  @IsString()
+  @IsNotEmpty()
   JWT_ACCESS_SECRET!: string;
 
   @IsNumber()
