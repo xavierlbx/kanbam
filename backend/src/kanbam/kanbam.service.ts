@@ -1,12 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import type { UserRegisteredEvent } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { ReorderTasksDto } from './dto/reorder-tasks.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
@@ -161,13 +161,13 @@ export class KanbamService {
 
     const targetColumnIds = [...new Set(dto.tasks.map((item) => item.columnId))];
 
-    const [ownedTasks, ownedColumns] = await Promise.all([
+    const [ownedTasksWithColumn, ownedColumns] = await Promise.all([
       this.prisma.task.findMany({
         where: {
           id: { in: [...uniqueTaskIds] },
           column: { board: { userId } },
         },
-        select: { id: true },
+        select: { id: true, columnId: true },
       }),
       this.prisma.column.findMany({
         where: {
@@ -178,12 +178,34 @@ export class KanbamService {
       }),
     ]);
 
-    if (ownedTasks.length !== uniqueTaskIds.size) {
+    if (ownedTasksWithColumn.length !== uniqueTaskIds.size) {
       throw new ForbiddenException('Uma ou mais tasks não pertencem ao usuário autenticado.');
     }
 
     if (ownedColumns.length !== targetColumnIds.length) {
       throw new ForbiddenException('Uma ou mais colunas não pertencem ao usuário autenticado.');
+    }
+
+    const sourceColumnIds = [...new Set(ownedTasksWithColumn.map((task) => task.columnId))];
+    const affectedColumnIds = [...new Set([...sourceColumnIds, ...targetColumnIds])];
+
+    const affectedColumnTasks = await this.prisma.task.findMany({
+      where: {
+        columnId: { in: affectedColumnIds },
+        column: { board: { userId } },
+      },
+      select: { id: true, columnId: true },
+    });
+
+    const payloadTaskIds = uniqueTaskIds;
+    const missingTasks = affectedColumnTasks.filter((task) => !payloadTaskIds.has(task.id));
+    if (missingTasks.length > 0) {
+      const missingColumnIds = [...new Set(missingTasks.map((task) => task.columnId))].sort(
+        (a, b) => a - b,
+      );
+      throw new BadRequestException(
+        `Payload de reorder incompleto para as colunas afetadas: ${missingColumnIds.join(', ')}.`,
+      );
     }
 
     const groupedByColumn = new Map<number, { id: number; columnId: number; order: number }[]>();
@@ -213,49 +235,36 @@ export class KanbamService {
         });
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      for (let index = 0; index < normalizedItems.length; index += 1) {
-        const item = normalizedItems[index];
-        await tx.task.update({
-          where: { id: item.id },
-          data: {
-            columnId: item.columnId,
-            order: -(index + 1),
-          },
-        });
-      }
-
-      for (const item of normalizedItems) {
-        await tx.task.update({
-          where: { id: item.id },
-          data: {
-            columnId: item.columnId,
-            order: item.order,
-          },
-        });
-      }
-    });
-  }
-
-  @OnEvent('user.registered')
-  async onUserRegistered({ userId }: UserRegisteredEvent): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        boards: {
-          create: {
-            title: 'Board',
-            columns: {
-              create: [
-                { title: 'Backlog', order: 0 },
-                { title: 'To do', order: 1 },
-                { title: 'Doing', order: 2 },
-                { title: 'Done', order: 3 },
-              ],
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        for (let index = 0; index < normalizedItems.length; index += 1) {
+          const item = normalizedItems[index];
+          await tx.task.update({
+            where: { id: item.id },
+            data: {
+              columnId: item.columnId,
+              order: -(index + 1),
             },
-          },
-        },
-      },
-    });
+          });
+        }
+
+        for (const item of normalizedItems) {
+          await tx.task.update({
+            where: { id: item.id },
+            data: {
+              columnId: item.columnId,
+              order: item.order,
+            },
+          });
+        }
+      });
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(
+          'Conflito de ordenação detectado. Atualize o quadro e tente novamente.',
+        );
+      }
+      throw error;
+    }
   }
 }

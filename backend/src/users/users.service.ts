@@ -1,5 +1,4 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user-dto';
@@ -14,16 +13,9 @@ interface CreatedUser {
   updatedAt: Date;
 }
 
-export interface UserRegisteredEvent {
-  userId: number;
-}
-
 @Injectable()
 export class UsersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly eventEmitter: EventEmitter2,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findByEmail(email: string): Promise<{ id: number } | null> {
     return this.prisma.user.findUnique({
@@ -70,11 +62,26 @@ export class UsersService {
     const hashedPassword = await bcrypt.hash(dto.password, SALT_ROUNDS);
 
     const user = await this.prisma.user.create({
-      data: { name: dto.name, email: dto.email, passwordHash: hashedPassword },
+      data: {
+        name: dto.name,
+        email: dto.email,
+        passwordHash: hashedPassword,
+        boards: {
+          create: {
+            title: 'Board',
+            columns: {
+              create: [
+                { title: 'Backlog', order: 0 },
+                { title: 'To do', order: 1 },
+                { title: 'Doing', order: 2 },
+                { title: 'Done', order: 3 },
+              ],
+            },
+          },
+        },
+      },
       select: { id: true, name: true, email: true, createdAt: true, updatedAt: true },
     });
-
-    this.eventEmitter.emit('user.registered', { userId: user.id } satisfies UserRegisteredEvent);
 
     return user;
   }
