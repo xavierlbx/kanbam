@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { kanbamApi } from '@/modules/kanbam/service/kanbamApi'
+import { kanbanApi } from '@/modules/kanbam/service/kanbamApi'
 import type { Column, CreateTaskPayload, ReorderTasksPayload, Task } from '@/types/kanbam'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import draggable from 'vuedraggable'
@@ -125,7 +125,7 @@ async function persistTaskOrder(snapshot: Record<number, Task[]>) {
   savingOrder.value = true
   try {
     normalizeLocalTaskOrder()
-    await kanbamApi.reorderTasks(authStore.accessToken, buildReorderPayload())
+    await kanbanApi.reorderTasks(authStore.accessToken, buildReorderPayload())
   } catch (error) {
     tasksByColumn.value = snapshot
     toast.add({
@@ -164,8 +164,8 @@ async function fetchData() {
   loading.value = true
   try {
     const [colRes, taskRes] = await Promise.all([
-      kanbamApi.findAllColumns(authStore.accessToken),
-      kanbamApi.findAllTasks(authStore.accessToken),
+      kanbanApi.findAllColumns(authStore.accessToken),
+      kanbanApi.findAllTasks(authStore.accessToken),
     ])
     columns.value = colRes.data.sort((a, b) => a.order - b.order)
 
@@ -241,7 +241,7 @@ async function handleSaveTask() {
         columnId: formColumnId.value,
       }
 
-      const { data } = await kanbamApi.updateTask(
+      const { data } = await kanbanApi.updateTask(
         authStore.accessToken,
         editingTaskId.value,
         payload,
@@ -270,7 +270,7 @@ async function handleSaveTask() {
       columnId: formColumnId.value,
     }
 
-    const { data } = await kanbamApi.createTask(authStore.accessToken, payload)
+    const { data } = await kanbanApi.createTask(authStore.accessToken, payload)
     getColumnTasks(data.columnId).push(data)
     normalizeLocalTaskOrder()
     closeTaskDialog()
@@ -298,7 +298,7 @@ async function handleSaveTask() {
 async function handleDeleteTask(taskId: number) {
   if (!authStore.accessToken) return
   try {
-    await kanbamApi.removeTask(authStore.accessToken, taskId)
+    await kanbanApi.removeTask(authStore.accessToken, taskId)
     columns.value.forEach((column) => {
       const list = getColumnTasks(column.id)
       tasksByColumn.value[column.id] = list.filter((task) => task.id !== taskId)
@@ -333,7 +333,7 @@ onMounted(fetchData)
         <span class="kanban-header-logo">
           <i class="pi pi-th-large" />
         </span>
-        <h1 class="kanban-header-title">Kanbam</h1>
+        <h1 class="kanban-header-title">Kanban</h1>
       </div>
       <div class="kanban-header-right">
         <span v-if="authStore.user" class="kanban-header-user">

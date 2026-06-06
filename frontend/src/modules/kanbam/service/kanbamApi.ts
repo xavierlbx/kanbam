@@ -14,7 +14,7 @@ function authHeaders(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } }
 }
 
-export const kanbamApi = {
+export const kanbanApi = {
   findAllTasks(token: string) {
     return axios.get<Task[]>(`${BASE_URL}/api/kanbam/tasks`, authHeaders(token))
   },

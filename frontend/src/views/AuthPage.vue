@@ -29,7 +29,7 @@ const handleLogin = async () => {
 
   try {
     await authStore.login(email.value, password.value)
-    await router.push('/kanbam')
+    await router.push('/kanban')
   } catch (error) {
     errorMessage.value = extractApiErrorMessage(error, 'E-mail ou senha invalidos.')
   } finally {

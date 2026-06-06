@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AuthPage from '../views/AuthPage.vue'
 import RegisterPage from '../views/RegisterPage.vue'
-import KanbamPage from '@/views/KanbamPage.vue'
+import KanbanPage from '@/views/KanbamPage.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -18,9 +18,9 @@ const router = createRouter({
       component: RegisterPage,
     },
     {
-      path: '/kanbam',
-      name: 'kanbam',
-      component: KanbamPage,
+      path: '/kanban',
+      name: 'kanban',
+      component: KanbanPage,
       meta: { requiresAuth: true },
     },
   ],
@@ -41,7 +41,7 @@ router.beforeEach(async (to) => {
   }
 
   if (authStore.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
-    return { name: 'kanbam' }
+    return { name: 'kanban' }
   }
 
   return true
