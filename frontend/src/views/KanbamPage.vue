@@ -376,15 +376,6 @@ onMounted(fetchData)
                 {{ getColumnTasks(col.id).length }}
               </span>
             </div>
-            <Button
-              icon="pi pi-plus"
-              text
-              rounded
-              size="small"
-              class="kanban-column-add-btn"
-              v-tooltip.top="'Adicionar tarefa'"
-              @click="openAddTask(col.id)"
-            />
           </div>
 
           <!-- Tasks list -->
@@ -467,24 +458,6 @@ onMounted(fetchData)
     @hide="closeTaskDialog"
   >
     <form class="task-form" @submit.prevent="handleSaveTask">
-      <div
-        class="task-form-banner"
-        :class="isEditingTask ? 'task-form-banner--edit' : 'task-form-banner--create'"
-      >
-        <i class="pi" :class="isEditingTask ? 'pi-pencil' : 'pi-plus-circle'" />
-        <div>
-          <p class="task-form-banner-title">
-            {{ isEditingTask ? 'Atualize os detalhes da tarefa' : 'Crie uma tarefa nova' }}
-          </p>
-          <p class="task-form-banner-subtitle">
-            {{
-              isEditingTask
-                ? 'As mudanças aparecem no quadro imediatamente.'
-                : 'Defina título, descrição e coluna inicial.'
-            }}
-          </p>
-        </div>
-      </div>
 
       <div class="task-form-field">
         <label class="task-form-label" for="task-title">Título *</label>
@@ -548,7 +521,7 @@ onMounted(fetchData)
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #f5f5f9;
+  background: #d6d6d6;
   font-family: 'Inter', system-ui, sans-serif;
 }
 
@@ -560,7 +533,7 @@ onMounted(fetchData)
   gap: 1rem;
   padding: 0 1.5rem;
   height: 60px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #6164ff 0%, #4346ca 40%);
   color: #ffffff;
   box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
   flex-shrink: 0;
@@ -643,7 +616,7 @@ onMounted(fetchData)
 /* ── Column ─────────────────────────────────────────────────── */
 .kanban-column {
   flex: 1;
-  background: #ffffff;
+  background: #fcfcfc;
   border-radius: 1rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.07);
   display: flex;
@@ -770,6 +743,7 @@ onMounted(fetchData)
 /* ── Task card ──────────────────────────────────────────────── */
 .kanban-task {
   border: 1.5px solid #e2e8f0;
+  background-color: #fff;
   border-radius: 0.65rem;
   padding: 0.75rem 0.875rem;
   display: flex;
@@ -786,19 +760,6 @@ onMounted(fetchData)
   cursor: grabbing;
 }
 
-.kanban-column--backlog .kanban-task {
-  background: #faf9f9;
-}
-.kanban-column--todo .kanban-task {
-  background: #eff0ff;
-}
-.kanban-column--doing .kanban-task {
-  background: #fef3e0;
-}
-.kanban-column--done .kanban-task {
-  background: #dcfce7;
-}
-
 .kanban-task:hover {
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
   transform: translateY(-1px);
@@ -808,7 +769,8 @@ onMounted(fetchData)
 .kanban-task-title {
   margin: 0;
   margin-bottom: 0.25rem;
-  font-size: 0.875rem;
+  margin-left: 0.05rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: #1e293b;
   line-height: 1.4;
@@ -816,7 +778,7 @@ onMounted(fetchData)
 
 .kanban-task-description {
   margin: 0;
-  font-size: 0.775rem;
+  font-size: 0.65rem;
   color: #64748b;
   line-height: 1.5;
   display: -webkit-box;
@@ -882,9 +844,9 @@ onMounted(fetchData)
   padding: 0.5rem 0.6rem;
   margin-top: 0.15rem;
   background: transparent;
-  border: 1.5px dashed #e2e8f0;
+  border: 1.5px dashed #d2d7dd;
   border-radius: 0.5rem;
-  color: #94a3b8;
+  color: #7b8899;
   font-size: 0.78rem;
   font-weight: 500;
   cursor: pointer;
