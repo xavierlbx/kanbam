@@ -19,6 +19,10 @@ class EnvironmentVariables {
   @Min(60)
   @Transform(({ value }: { value: string }) => parseInt(value, 10))
   JWT_ACCESS_EXPIRATION_SECONDS!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  GEMINI_API_KEY!: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
