@@ -35,3 +35,11 @@ export interface Column {
   title: string
   order: number
 }
+
+export type AiAction = 'CHAT' | 'CREATE_TASK'
+
+export interface AiChatResponse {
+  action: AiAction
+  message: string
+  task?: Task
+}

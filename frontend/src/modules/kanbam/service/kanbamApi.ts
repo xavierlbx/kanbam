@@ -3,6 +3,7 @@ import axios from 'axios'
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 import type {
+  AiChatResponse,
   Column,
   CreateTaskPayload,
   ReorderTasksPayload,
@@ -45,5 +46,9 @@ export const kanbanApi = {
 
   removeTask(token: string, id: number) {
     return axios.delete<void>(`${BASE_URL}/api/kanbam/tasks/${id}`, authHeaders(token))
+  },
+
+  chatWithAi(token: string, message: string) {
+    return axios.post<AiChatResponse>(`${BASE_URL}/api/ai/chat`, { message }, authHeaders(token))
   },
 }

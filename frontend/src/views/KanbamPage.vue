@@ -6,6 +6,7 @@ import { kanbanApi } from '@/modules/kanbam/service/kanbamApi'
 import type { Column, CreateTaskPayload, ReorderTasksPayload, Task } from '@/types/kanbam'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import draggable from 'vuedraggable'
+import AiChatbox from '@/components/AiChatbox.vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
@@ -320,6 +321,17 @@ function handleLogout() {
   router.push('/')
 }
 
+function handleAiTaskCreated(task: Task) {
+  getColumnTasks(task.columnId).push(task)
+  normalizeLocalTaskOrder()
+  toast.add({
+    severity: 'success',
+    summary: 'Tarefa criada pela IA',
+    detail: `"${task.title}" adicionada ao quadro.`,
+    life: 2500,
+  })
+}
+
 onMounted(fetchData)
 </script>
 
@@ -513,6 +525,8 @@ onMounted(fetchData)
       </div>
     </form>
   </Dialog>
+
+  <AiChatbox v-if="!loading && columns.length" :columns="columns" @task-created="handleAiTaskCreated" />
 </template>
 
 <style scoped>
