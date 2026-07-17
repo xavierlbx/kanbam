@@ -49,7 +49,7 @@ export class AiService {
 
     return {
       action: 'CHAT',
-      message: parsed.message?.trim() || 'Como posso ajudar com suas tarefas?',
+      message: this.nonEmptyString(parsed.message) ?? 'Como posso ajudar com suas tarefas?',
     };
   }
 
@@ -64,7 +64,7 @@ export class AiService {
     }
 
     const columnId = this.resolveColumnId(parsed.task?.columnTitle, columns);
-    const description = parsed.task?.description?.trim() || undefined;
+    const description = this.nonEmptyString(parsed.task?.description);
 
     const task: TaskResponseDto = await this.kanbamService.createTask(userId, {
       title,
@@ -77,7 +77,7 @@ export class AiService {
     return {
       action: 'CREATE_TASK',
       message:
-        parsed.message?.trim() ||
+        this.nonEmptyString(parsed.message) ??
         `Tarefa "${task.title}" criada com sucesso na coluna ${columnTitle}.`,
       task,
     };
@@ -85,7 +85,7 @@ export class AiService {
 
   private resolveColumnId(columnTitle: string | undefined, columns: ColumnResponseDto[]): number {
     if (!columnTitle?.trim()) {
-      return columns[0]!.id;
+      return columns[0].id;
     }
 
     const normalizedInput = this.normalizeText(columnTitle);
@@ -132,6 +132,14 @@ export class AiService {
     return undefined;
   }
 
+  private nonEmptyString(value: string | undefined | null): string | undefined {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    return trimmed;
+  }
+
   private normalizeText(value: string): string {
     return value
       .normalize('NFD')
@@ -142,7 +150,10 @@ export class AiService {
 
   private buildSystemPrompt(columns: ColumnResponseDto[]): string {
     const columnList = columns
-      .map((column) => `- id=${column.id}, title="${column.title}", order=${column.order}`)
+      .map(
+        (column) =>
+          `- id=${String(column.id)}, title="${column.title}", order=${String(column.order)}`,
+      )
       .join('\n');
 
     return `Você é um assistente de Kanban em português do Brasil.
@@ -213,12 +224,12 @@ Formato JSON obrigatório:
 
     if (!response.ok) {
       const errorText = await response.text();
-      this.logger.error(`Gemini API error (${response.status}): ${errorText}`);
+      this.logger.error(`Gemini API error (${String(response.status)}): ${errorText}`);
       throw new BadGatewayException('O serviço de IA retornou um erro. Tente novamente.');
     }
 
     const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
 
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
