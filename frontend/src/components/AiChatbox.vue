@@ -14,7 +14,7 @@ interface ChatMessage {
   content: string
 }
 
-const props = defineProps<{
+defineProps<{
   columns: Column[]
 }>()
 
